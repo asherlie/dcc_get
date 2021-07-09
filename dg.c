@@ -148,7 +148,7 @@ void* msg_handler(void* v_arg){
             /*arg->ic->nick_set = set_nick(arg->ic);*/
             /*usleep(1000000);*/
             set_nick(arg->ic);
-            /*arg->ic->nick_set = 1;*/
+            arg->ic->nick_set = 1;
             /*if(!arg->ic->nick_set)arg->ic->n_initial_msgs = 0;*/
         }
 
@@ -178,12 +178,46 @@ void* msg_handler(void* v_arg){
         /*puts("in_room = 1");*/
         /*send_irc(arg->ic, "JOIN #freenode\n");*/
         /*send_irc(arg->ic, "JOIN #ebooks\n");*/
-        send_irc(arg->ic, arg->ic->room);
+        send_irc(arg->ic, arg->ic->join_str);
     }
 
     if(strstr(arg->msg, "DCC")){
-        puts(arg->msg);
+        puts("handling dcc msg");
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in sender = {.sin_family = AF_INET};
+        char* parse = strstr(arg->msg, "SEND"), * ip, * port, * len;
+
+        if(!parse)goto CLEANUP;
+
+        parse = strchr(parse, ' ');
+        if(!parse)goto CLEANUP;
+        parse = strchr(parse+1, ' ');
+        if(!parse)goto CLEANUP;
+        ip = parse+1;
+        /*
+         * printf("IP: %s\n", parse);
+         * printf("IP: %s\n", parse+1);
+        */
+        parse = strchr(parse+1, ' ');
+        if(!parse)goto CLEANUP;
+        *parse = 0;
+        port = parse+1;
+        /*
+         * printf("port: %s\n", parse);
+         * printf("port: %s\n", parse+1);
+        */
+        parse = strchr(parse+1, ' ');
+        if(!parse)goto CLEANUP;
+        *parse = 0;
+        len = parse+1;
+        /*
+         * printf("len: %s\n", parse);
+         * printf("len: %s\n", parse+1);
+        */
+        printf("\"%s@%s\" \"%s\"", ip, port, len);
     }
+
+    CLEANUP:
 
     free(arg);
 
@@ -286,17 +320,40 @@ struct irc_conn* irc_connect(char* server, char* room){
 }
 
 void await_irc(struct irc_conn* ic){
-    pthread_join(ic->read_th);
+    pthread_join(ic->read_th, NULL);
 }
 
+/*
+ * now i just need to figure out dcc, update msg handler to always accept DCC
+ * dcc request comes in, interpret IP directly as unsigned long and port as unsigned short
+ *
+ * this should be done async, use spooler and have a function called dcc_recv
+ * that creates a socket and recvs a file given the DCC string
+ * 
+ * exec_routine(_, dcc_recv, arg->msg) will be called from handler each time
+ * strstr(dcc)
+*/
+
 int main(){
+    struct irc_conn* ic = irc_connect("irc.irchighway.net", "ebooks");
+    char* ln = NULL;
+    size_t sz = 0;
+
+    while(getline(&ln, &sz, stdin) != -1){
+        send_irc(ic, ln);
+    }
+
+    await_irc(ic);
+}
+
+int smain(){
     struct irc_conn ic;
     char* ln = NULL;
     size_t sz = 0;
     pthread_t read_pth;
 
     /*establish_connection(&ic, "irc.freenode.net");*/
-    establish_connection(&ic, "irc.irchighway.net");
+    establish_connection(&ic, "irc.irchighway.net", "ebooks");
 
     if(ic.sock == -1)return 0;
 
@@ -332,11 +389,5 @@ int main(){
      *     puts(ln);
      * }
     */
+    return 0;
 }
-/*
- * perhaps this will all just be part of a library - dcc_get.h
- * it creates an irc_conn object
- * i'll add a function that just creates it from scratch and connects to a certain server
- * and potentially blocks until it's time to join a room
- * 
-*/
