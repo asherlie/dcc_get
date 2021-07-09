@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -184,15 +185,25 @@ void* msg_handler(void* v_arg){
     if(strstr(arg->msg, "DCC")){
         puts("handling dcc msg");
         int sock = socket(AF_INET, SOCK_STREAM, 0);
-        struct sockaddr_in sender = {.sin_family = AF_INET};
-        char* parse = strstr(arg->msg, "SEND"), * ip, * port, * len;
+        int fsz;
+        struct sockaddr_in sender = {.sin_family = AF_INET}, local;
+        char* parse = strstr(arg->msg, "SEND"), * ip, * port, * len,
+            * fn;
+
+        local.sin_family = AF_INET;
+        local.sin_addr.s_addr = INADDR_ANY;
+        local.sin_port = 0;
+
+        if(bind(sock, (struct sockaddr*)&local, sizeof(struct sockaddr_in)))perror("dcc bind");
 
         if(!parse)goto CLEANUP;
 
         parse = strchr(parse, ' ');
         if(!parse)goto CLEANUP;
+        fn = parse+1;
         parse = strchr(parse+1, ' ');
         if(!parse)goto CLEANUP;
+        *parse = 0;
         ip = parse+1;
         /*
          * printf("IP: %s\n", parse);
@@ -210,14 +221,51 @@ void* msg_handler(void* v_arg){
         if(!parse)goto CLEANUP;
         *parse = 0;
         len = parse+1;
+
+        if(!*len)goto CLEANUP;
+
+        for(char* i = len; *i; ++i){
+            if(!isdigit(*i)){
+                *i = 0;
+                break;
+            }
+        }
+
+        fsz = atoi(len);
+
         /*
          * printf("len: %s\n", parse);
          * printf("len: %s\n", parse+1);
         */
-        printf("\"%s@%s\" \"%s\"", ip, port, len);
-    }
+        puts(arg->msg);
+        printf("file \"%s\" from \"%s@%s\" \"%s\"\n", fn, ip, port, len);
+        fflush(stdout);
+        char accept_str[200] = {0};
+        sprintf(accept_str, "DCC ACCEPT %s %s 0\n", fn, port);
+        printf("accept string: %s\n", accept_str);
+        send_irc(arg->ic, accept_str);
+        sender.sin_port = ntohs((unsigned short)atoi(port));
+        sender.sin_addr.s_addr = ntohl(strtoul(ip, NULL, 10));
 
-    CLEANUP:
+        if(connect(sock, (struct sockaddr*)&sender, sizeof(struct sockaddr_in)))perror("connect_dcc");
+
+        FILE* sfp = fdopen(sock, "r");
+
+        char* buf = malloc(fsz);
+        /*fread(buf, 1, fsz, sfp);*/
+        while(fread(buf, 1, 1, sfp)){
+            printf("read a char: %c\n", *buf);
+        }
+
+        /*
+         * for(int i = 0; i < fsz; ++i){
+         *     printf("'%c',", buf[i]);
+         * }
+        */
+        CLEANUP:
+        close(sock);
+
+    }
 
     free(arg);
 
