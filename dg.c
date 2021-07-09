@@ -12,6 +12,14 @@
 
 #include "spool/sp.h"
 
+#define ANSI_RED     "\x1b[31m"
+#define ANSI_GREEN   "\x1b[32m"
+#define ANSI_YELLOW  "\x1b[33m"
+#define ANSI_BLUE    "\x1b[34m"
+#define ANSI_MAGENTA "\x1b[35m"
+#define ANSI_CYAN    "\x1b[36m"
+#define ANSI_RESET   "\x1b[0m"
+
 struct irc_conn{
     struct spool_t msg_handlers;
 
@@ -180,7 +188,9 @@ void* msg_handler(void* v_arg){
         /*send_irc(arg->ic, "JOIN #freenode\n");*/
         /*send_irc(arg->ic, "JOIN #ebooks\n");*/
         send_irc(arg->ic, arg->ic->join_str);
-        printf("room has been joined with command %s", arg->ic->join_str);
+        printf("%sroom has been joined%s with command %s%s%s", ANSI_GREEN, ANSI_RESET, ANSI_RED, arg->ic->join_str, ANSI_RESET);
+
+        fflush(stdout);
     }
 
     if(strstr(arg->msg, "DCC")){
