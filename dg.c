@@ -259,7 +259,7 @@ void* msg_handler(void* v_arg){
         int b_read = 0, tmp;
         uint32_t n_int;
         while(b_read != fsz){
-            while((tmp = read(sock, buf+b_read, 1))){
+            while((tmp = read(sock, buf+b_read, 4))){
                 printf("read %i bytes\n", tmp);
                 b_read += tmp;
             }
@@ -409,54 +409,13 @@ int main(){
     size_t sz = 0;
 
     while(getline(&ln, &sz, stdin) != -1){
-        send_irc(ic, ln);
+        if(*ln == '.'){
+            char buf[200] = {0};
+            sprintf(buf, "PRIVMSG #ebooks :@search %s", ln+1);
+            send_irc(ic, buf);
+        }
+        else send_irc(ic, ln);
     }
 
     await_irc(ic);
-}
-
-int smain(){
-    struct irc_conn ic;
-    char* ln = NULL;
-    size_t sz = 0;
-    pthread_t read_pth;
-
-    /*establish_connection(&ic, "irc.freenode.net");*/
-    establish_connection(&ic, "irc.irchighway.net", "ebooks");
-
-    if(ic.sock == -1)return 0;
-
-    read_pth = spawn_read_th(&ic);
-
-    while(getline(&ln, &sz, stdin) != -1){
-        send_irc(&ic, ln);
-    }
-
-/*
- *     while(!set_nick(&ic)){
- *         puts("failed to send nick");
- *     }
- * 
- *     ic.nick_set = 1;
- *     puts("succesfully set nick");
-*/
-    /*
-     * printf("sn: %i\n", set_nick(&ic));
-     * ic.nick_set = 1;
-    */
-
-    pthread_join(read_pth, NULL);
-    /*usleep(4000000);*/
-    /*
-     * fprintf(fp, "USER Goo 0 * :Goo\n");
-     * fprintf(fp, "NICK freeman\n");
-    */
-
-    /*
-     * while((llen = getline(&ln, &sz, ic.fp)) != -1){
-     *     if(ln[llen-1] == '\n')ln[llen-1] = 0;
-     *     puts(ln);
-     * }
-    */
-    return 0;
 }
