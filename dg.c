@@ -17,6 +17,9 @@ struct irc_conn{
     /*pthread_cond_t first_msg_recvd;*/
     pthread_mutex_t nick_set_lck, send_lck;
 
+    pthread_t read_th;
+
+    char* join_str;
     _Atomic _Bool nick_set, on_server;
     int wait_for_n;
     _Atomic int n_initial_msgs;
@@ -27,7 +30,7 @@ struct irc_conn{
 };
 
 /* returns success */
-_Bool establish_connection(struct irc_conn* ic, char* host_name){
+_Bool establish_connection(struct irc_conn* ic, char* host_name, char* join_str){
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     struct hostent* h = gethostbyname(host_name);
     struct sockaddr_in addr = {.sin_family = AF_INET, .sin_port = htons(6660)},
@@ -39,6 +42,8 @@ _Bool establish_connection(struct irc_conn* ic, char* host_name){
     ic->sock = -1;
     /*ic->active = 1;*/
     ic->on_server = ic->nick_set = 0;
+    ic->join_str = strdup(join_str);
+
     pthread_mutex_init(&ic->nick_set_lck, NULL);
     pthread_mutex_init(&ic->send_lck, NULL);
 
@@ -172,7 +177,8 @@ void* msg_handler(void* v_arg){
         arg->ic->on_server = 1;
         /*puts("in_room = 1");*/
         /*send_irc(arg->ic, "JOIN #freenode\n");*/
-        send_irc(arg->ic, "JOIN #ebooks\n");
+        /*send_irc(arg->ic, "JOIN #ebooks\n");*/
+        send_irc(arg->ic, arg->ic->room);
     }
 
     if(strstr(arg->msg, "DCC")){
@@ -262,6 +268,27 @@ PING :JmqXrjDYIj
 PONG JmqXrjDYIj     
 #endif
 
+struct irc_conn* irc_connect(char* server, char* room){
+    struct irc_conn* ic = malloc(sizeof(struct irc_conn));
+    char join_str[200] = {0};
+
+    sprintf(join_str, "JOIN #%s\n", room);
+
+    establish_connection(ic, server, join_str);
+    if(ic->sock == -1){
+        free(ic);
+        return NULL;
+    }
+
+    ic->read_th = spawn_read_th(ic);
+
+    return ic;
+}
+
+void await_irc(struct irc_conn* ic){
+    pthread_join(ic->read_th);
+}
+
 int main(){
     struct irc_conn ic;
     char* ln = NULL;
@@ -306,3 +333,10 @@ int main(){
      * }
     */
 }
+/*
+ * perhaps this will all just be part of a library - dcc_get.h
+ * it creates an irc_conn object
+ * i'll add a function that just creates it from scratch and connects to a certain server
+ * and potentially blocks until it's time to join a room
+ * 
+*/
