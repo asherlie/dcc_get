@@ -13,6 +13,8 @@
 struct irc_conn{
     struct spool_t msg_handlers;
 
+    pthread_cond_t first_msg_recvd;
+
     _Atomic _Bool nick_set;
     /*_Atomic _Bool active;*/
     /*_Atomic _Bool in_channel;*/
@@ -31,6 +33,7 @@ _Bool establish_connection(struct irc_conn* ic, char* host_name){
     /*ic->active = 1;*/
     ic->nick_set = 0;
 
+    pthread_cond_init(&ic->first_msg_recvd, NULL);
     init_spool_t(&ic->msg_handlers, 10);
 
     local_addr.sin_addr.s_addr = INADDR_ANY;
@@ -53,15 +56,36 @@ _Bool establish_connection(struct irc_conn* ic, char* host_name){
     return 1;
 }
 
-void* msg_handler(void* v_msg){
-    char* msg = v_msg;
+int send_irc(struct irc_conn* ic, char* msg){
+    return fprintf(ic->fp, "%s", msg);
+}
 
-    printf("msg: \"%s\"", msg);
+struct msg_arg{
+    char* msg;
+    struct irc_conn* ic;
+};
+
+/* msg_handler will attempt to set nickname
+ * with each new msg until nickname has been
+ * succesfully set
+ */
+void* msg_handler(void* v_arg){
+    struct msg_arg* arg = v_arg;
+
+    if(!arg->ic->nick_set){
+        pthread_cond_signal(&arg->ic->first_msg_recvd);
+        /*arg->ic->nick_set = 1;*/
+    }
+    printf("msg: \"%s\"", arg->msg);
+
+    free(arg);
+
     return NULL;
 }
 
 void* read_th(void* v_ic){
     struct irc_conn* ic = v_ic;
+    struct msg_arg* ma;
     char* ln = NULL;
     size_t sz;
     int llen;
@@ -71,7 +95,10 @@ void* read_th(void* v_ic){
 
     /*while(ic->active){*/
     while((llen = getline(&ln, &sz, ic->fp)) != -1){
-        exec_routine(&ic->msg_handlers, msg_handler, ln, 0);
+        ma = malloc(sizeof(struct msg_arg));
+        ma->ic = ic;
+        ma->msg = ln;
+        exec_routine(&ic->msg_handlers, msg_handler, ma, 0);
         ln = NULL;
         /* nick should be set by a separate function
          * this other function should be waiting on a
@@ -134,6 +161,24 @@ handle pings
 PING :JmqXrjDYIj
 PONG JmqXrjDYIj     
 #endif
+
+_Bool set_nick(struct irc_conn* ic){
+    _Bool ret = 1;
+    pthread_mutex_t lck;
+    pthread_mutex_init(&lck, NULL);
+    pthread_mutex_lock(&lck);
+
+    pthread_cond_wait(&ic->first_msg_recvd, &lck);
+
+    ret &= send_irc(ic, "USER malloc 0 * :malloc\n");
+    ret &= send_irc(ic, "NICK MALLOC\n");
+    ret &= send_irc(ic, "JOIN #freenode\n");
+
+    pthread_mutex_destroy(&lck);
+
+    return ret;
+}
+
 int main(){
     struct irc_conn ic;
     int llen;
@@ -146,6 +191,12 @@ int main(){
     if(ic.sock == -1)return 0;
 
     read_pth = spawn_read_th(&ic);
+
+    while(!set_nick(&ic)){
+        puts("failed to send nick");
+    }
+    ic.nick_set = 1;
+    puts("succesfully set nick");
 
     pthread_join(read_pth, NULL);
     /*usleep(4000000);*/
