@@ -174,16 +174,17 @@ void* msg_handler(void* v_arg){
         puts("PONG");
     }
 
-    if(strstr(arg->msg, "Welcome") || strstr(arg->msg, "WELCOME")){
+    if(!arg->ic->on_server && (strstr(arg->msg, "Welcome") || strstr(arg->msg, "WELCOME"))){
         arg->ic->on_server = 1;
         /*puts("in_room = 1");*/
         /*send_irc(arg->ic, "JOIN #freenode\n");*/
         /*send_irc(arg->ic, "JOIN #ebooks\n");*/
         send_irc(arg->ic, arg->ic->join_str);
+        printf("room has been joined with command %s", arg->ic->join_str);
     }
 
     if(strstr(arg->msg, "DCC")){
-        puts("handling dcc msg");
+        /*puts("handling dcc msg");*/
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         int fsz;
         struct sockaddr_in sender = {.sin_family = AF_INET}, local;
@@ -197,6 +198,8 @@ void* msg_handler(void* v_arg){
         if(bind(sock, (struct sockaddr*)&local, sizeof(struct sockaddr_in)))perror("dcc bind");
 
         if(!parse)goto CLEANUP;
+
+        puts("received DCC SEND offer, readying port");
 
         parse = strchr(parse, ' ');
         if(!parse)goto CLEANUP;
@@ -237,12 +240,14 @@ void* msg_handler(void* v_arg){
          * printf("len: %s\n", parse);
          * printf("len: %s\n", parse+1);
         */
-        puts(arg->msg);
+        /*puts(arg->msg);*/
         printf("file \"%s\" from \"%s@%s\" \"%s\"\n", fn, ip, port, len);
         fflush(stdout);
+
         char accept_str[200] = {0};
         sprintf(accept_str, "DCC ACCEPT %s %s 1\n", fn, port);
-        printf("accept string: %s\n", accept_str);
+        /* TODO: THIS WILL BE USEFUL FOR DEBUGGING FILES WITH WHITESPACE */
+        /*printf("accept string: %s\n", accept_str);*/
         send_irc(arg->ic, accept_str);
         sender.sin_port = ntohs((unsigned short)atoi(port));
         sender.sin_addr.s_addr = ntohl(strtoul(ip, NULL, 10));
@@ -258,12 +263,22 @@ void* msg_handler(void* v_arg){
          */
         int b_read = 0, tmp;
         uint32_t n_int;
-        while(b_read != fsz){
-            while((tmp = read(sock, buf+b_read, 4))){
-                printf("read %i bytes\n", tmp);
-                b_read += tmp;
-            }
-            printf("read %i bytes of a total %s\n", b_read, len);
+        /*while(b_read != fsz){*/
+        while(1){
+            /*while((tmp = read(sock, buf+b_read, 4))){*/
+            /*
+             * while((tmp = read(sock, buf+b_read, fsz))){
+             *     b_read += tmp;
+             *     printf("read %i/%s bytes\n", b_read, len);
+             * }
+            */
+
+            tmp = read(sock, buf+b_read, fsz);
+            b_read += tmp;
+            printf("read %i/%s bytes\n", b_read, len);
+
+            if(b_read == fsz)break;
+
             n_int = htonl(b_read);
             send(sock, &n_int, sizeof(uint32_t), 0);
 
@@ -274,6 +289,7 @@ void* msg_handler(void* v_arg){
             */
         }
         FILE* fp = fopen(fn, "w");
+        puts("writing to file");
         fwrite(buf, 1, fsz, fp);
         fclose(fp);
         printf("wrote %i bytes to %s\n", fsz, fn);
