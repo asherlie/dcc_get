@@ -241,7 +241,7 @@ void* msg_handler(void* v_arg){
         printf("file \"%s\" from \"%s@%s\" \"%s\"\n", fn, ip, port, len);
         fflush(stdout);
         char accept_str[200] = {0};
-        sprintf(accept_str, "DCC ACCEPT %s %s 0\n", fn, port);
+        sprintf(accept_str, "DCC ACCEPT %s %s 1\n", fn, port);
         printf("accept string: %s\n", accept_str);
         send_irc(arg->ic, accept_str);
         sender.sin_port = ntohs((unsigned short)atoi(port));
@@ -249,13 +249,34 @@ void* msg_handler(void* v_arg){
 
         if(connect(sock, (struct sockaddr*)&sender, sizeof(struct sockaddr_in)))perror("connect_dcc");
 
-        FILE* sfp = fdopen(sock, "r");
+        /*FILE* sfp = fdopen(sock, "r");*/
 
         char* buf = malloc(fsz);
         /*fread(buf, 1, fsz, sfp);*/
-        while(fread(buf, 1, 1, sfp)){
-            printf("read a char: %c\n", *buf);
+        /* each time no more are sent, we need to send the total
+         * number of bytes read in network order to get more
+         */
+        int b_read = 0, tmp;
+        uint32_t n_int;
+        while(b_read != fsz){
+            while((tmp = read(sock, buf+b_read, 1))){
+                printf("read %i bytes\n", tmp);
+                b_read += tmp;
+            }
+            printf("read %i bytes of a total %s\n", b_read, len);
+            n_int = htonl(b_read);
+            send(sock, &n_int, sizeof(uint32_t), 0);
+
+            /*
+             * while(fread(buf, 1, 1, sfp)){
+             *     printf("read a char: %c\n", *buf);
+             * }
+            */
         }
+        FILE* fp = fopen(fn, "w");
+        fwrite(buf, 1, fsz, fp);
+        fclose(fp);
+        printf("wrote %i bytes to %s\n", fsz, fn);
 
         /*
          * for(int i = 0; i < fsz; ++i){
