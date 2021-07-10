@@ -139,8 +139,9 @@ _Bool set_nick(struct irc_conn* ic){
     return ret;
 }
 
-_Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
-    char* cursor = strrchr(msg, ' '), * st_cursor;
+_Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* port, int* len){
+    char* cursor = strrchr(msg, ' '), * st_cursor,
+        * ip_str, * port_str, * len_str;
 
     if(!cursor)return 0;
 
@@ -152,14 +153,14 @@ _Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
     }
 
     *cursor = 0;
-    *len = cursor+1;
+    len_str = cursor+1;
 
 
     cursor = strrchr(msg, ' ');
 
     if(!cursor)return 0;
 
-    *port = cursor+1;
+    port_str = cursor+1;
     /**len = cursor+1;*/
 
     *cursor = 0;
@@ -168,7 +169,7 @@ _Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
 
     if(!cursor)return 0;
 
-    *ip = cursor+1;
+    ip_str = cursor+1;
     /**port = cursor-1;*/
 
     *cursor = 0;
@@ -186,6 +187,9 @@ _Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
                                                                                                           |
     ":ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";
     #endif
+    *len = atoi(len_str);
+    *port = ntohs((unsigned short)atoi(port_str));
+    *ip = ntohl(strtoul(ip_str, NULL, 10));
 
     return 1;
 }
@@ -481,12 +485,17 @@ void dctest(){
     /*char nwspc[] = "DCC SEND txt.zip 2907702291\4611\13093";*/
     char nwspc[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4611 13093";
 
-    char* fn, * ip, * port, * len;
+    char* fn; 
+
+    int len;
+    unsigned long ip;
+    unsigned short port;
+
     parse_dcc_str(wspc, &fn, &ip, &port, &len);
-    printf("reported: %s %s %s %s\n", fn, ip, port, len);
+    printf("reported: %s %li %i %i\n", fn, ip, port, len);
 
     parse_dcc_str(nwspc, &fn, &ip, &port, &len);
-    printf("reported: %s %s %s %s\n", fn, ip, port, len);
+    printf("reported: %s %li %i %i\n", fn, ip, port, len);
 }
 
 
