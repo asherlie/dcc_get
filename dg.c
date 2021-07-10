@@ -140,12 +140,13 @@ _Bool set_nick(struct irc_conn* ic){
 }
 
 _Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* port, int* len){
+    /*puts(msg);*/
     char* cursor = strrchr(msg, ' '), * st_cursor,
         * ip_str, * port_str, * len_str;
 
     if(!cursor)return 0;
 
-    for(char* i = cursor; *i; ++i){
+    for(char* i = cursor+1; *i; ++i){
         if(!isdigit(*i)){
             *i = 0;
             break;
@@ -175,11 +176,19 @@ _Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* por
     *cursor = 0;
     /**ip = cursor-1;*/
 
-    st_cursor = strstr(msg, ":DCC SEND");
+    /*printf("finding :DCC SEND in \"%s\"\n", msg);*/
+    st_cursor = strchr(msg, '\001');
+    if(!st_cursor)st_cursor = msg;
+    else ++st_cursor;
+
+    /*st_cursor = strstr(st_cursor, ":DCC SEND");*/
+    st_cursor = strstr(st_cursor, "SEND");
+    /*printf("found: \"%s\"\n", st_cursor);*/
 
     if(!st_cursor)return 0;
 
-    st_cursor += 10;
+    /*st_cursor += 10;*/
+    st_cursor += 5;
 
     *fn = st_cursor;
 
@@ -190,6 +199,7 @@ _Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* por
     *len = atoi(len_str);
     *port = ntohs((unsigned short)atoi(port_str));
     *ip = ntohl(strtoul(ip_str, NULL, 10));
+    /*printf("%s %li %i %i\n", *fn, *ip, *port, *len);*/
 
     return 1;
 }
@@ -198,8 +208,11 @@ void handle_dcc(char* msg, struct irc_conn* ic){
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     int fsz;
     struct sockaddr_in sender = {.sin_family = AF_INET}, local;
-    char* parse = strstr(msg, "SEND"), * ip, * port, * len,
-        * fn;
+    char* fn; 
+    unsigned short port;
+    unsigned long ip;
+
+    /** port, * len, * fn;*/
 
     local.sin_family = AF_INET;
     local.sin_addr.s_addr = INADDR_ANY;
@@ -207,66 +220,27 @@ void handle_dcc(char* msg, struct irc_conn* ic){
 
     if(bind(sock, (struct sockaddr*)&local, sizeof(struct sockaddr_in)))perror("dcc bind");
 
-    if(!parse)goto CLEANUP;
+    if(!parse_dcc_str(msg, &fn, &ip, &port, &fsz))goto CLEANUP;
 
     puts("received DCC SEND offer, readying port");
 
-    parse = strchr(parse, ' ');
-    if(!parse)goto CLEANUP;
-    fn = parse+1;
-    parse = strchr(parse+1, ' ');
-    if(!parse)goto CLEANUP;
-    *parse = 0;
-    ip = parse+1;
-    /*
-     * printf("IP: %s\n", parse);
-     * printf("IP: %s\n", parse+1);
-    */
-    parse = strchr(parse+1, ' ');
-    if(!parse)goto CLEANUP;
-    *parse = 0;
-    port = parse+1;
-    /*
-     * printf("port: %s\n", parse);
-     * printf("port: %s\n", parse+1);
-    */
-    parse = strchr(parse+1, ' ');
-    if(!parse)goto CLEANUP;
-    *parse = 0;
-    len = parse+1;
-
-    if(!*len)goto CLEANUP;
-
-    for(char* i = len; *i; ++i){
-        if(!isdigit(*i)){
-            *i = 0;
-            break;
-        }
-    }
-
-    fsz = atoi(len);
-
-    /*
-     * printf("len: %s\n", parse);
-     * printf("len: %s\n", parse+1);
-    */
-    /*puts(arg->msg);*/
-    printf("file \"%s\" from \"%s@%s\" \"%s\"\n", fn, ip, port, len);
+    printf("file \"%s\" from \"%li@%i\" \"%i\"\n", fn, ip, port, fsz);
     fflush(stdout);
 
     char accept_str[200] = {0};
-    sprintf(accept_str, "DCC ACCEPT %s %s 1\n", fn, port);
+    sprintf(accept_str, "DCC ACCEPT %s %i 1\n", fn, port);
     /* TODO: THIS WILL BE USEFUL FOR DEBUGGING FILES WITH WHITESPACE */
     /*printf("accept string: %s\n", accept_str);*/
     send_irc(ic, accept_str);
-    sender.sin_port = ntohs((unsigned short)atoi(port));
-    sender.sin_addr.s_addr = ntohl(strtoul(ip, NULL, 10));
+    sender.sin_port = port;
+    sender.sin_addr.s_addr = ip;
 
     if(connect(sock, (struct sockaddr*)&sender, sizeof(struct sockaddr_in)))perror("connect_dcc");
 
     /*FILE* sfp = fdopen(sock, "r");*/
 
-    char* buf = malloc(fsz);
+    /* +1 for weirdness with extra byte */
+    char* buf = malloc(fsz+1);
     /*fread(buf, 1, fsz, sfp);*/
     /* each time no more are sent, we need to send the total
      * number of bytes read in network order to get more
@@ -285,9 +259,12 @@ void handle_dcc(char* msg, struct irc_conn* ic){
 
         tmp = read(sock, buf+b_read, fsz);
         b_read += tmp;
-        printf("read %i/%s bytes\n", b_read, len);
+        printf("read %i/%i bytes\n", b_read, fsz);
 
-        if(b_read == fsz)break;
+        /*if(b_read == fsz)break;*/
+        /* TODO: ??? */
+        /* with `peapod` book provider, 1 extra byte is sometimes sent */
+        if(b_read >= fsz)break;
 
         n_int = htonl(b_read);
         send(sock, &n_int, sizeof(uint32_t), 0);
@@ -298,9 +275,20 @@ void handle_dcc(char* msg, struct irc_conn* ic){
          * }
         */
     }
+
+    if(*fn == '"'){
+        char* l_quote;
+
+        if((l_quote = strrchr(fn+1, '"'))){
+            ++fn;
+            *l_quote = 0;
+        }
+    }
+
     FILE* fp = fopen(fn, "w");
     puts("writing to file");
     fwrite(buf, 1, fsz, fp);
+    free(buf);
     fclose(fp);
     printf("wrote %i bytes to %s\n", fsz, fn);
 
@@ -311,7 +299,6 @@ void handle_dcc(char* msg, struct irc_conn* ic){
     */
     CLEANUP:
     close(sock);
-
 }
 
 
@@ -370,7 +357,7 @@ void* msg_handler(void* v_arg){
 
     if(strstr(arg->msg, "DCC")){
         /*puts("handling dcc msg");*/
-        printf("dcc msg: \"%s\"\n", arg->msg);
+        /*printf("dcc msg: \"%s\"\n", arg->msg);*/
         handle_dcc(arg->msg, arg->ic);
     }
 
@@ -479,11 +466,14 @@ void await_irc(struct irc_conn* ic){
 }
 
 void dctest(){
-    char wspc[] = ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";
+    /*char wspc[] = ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";*/
     /*char wspc[] = ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";*/
 
     /*char nwspc[] = "DCC SEND txt.zip 2907702291\4611\13093";*/
-    char nwspc[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4611 13093";
+    /*char nwspc[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4611 13093";*/
+
+    /*char sss[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 22 3 2";*/
+    char sss[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4431 12955";
 
     char* fn; 
 
@@ -491,17 +481,20 @@ void dctest(){
     unsigned long ip;
     unsigned short port;
 
-    parse_dcc_str(wspc, &fn, &ip, &port, &len);
-    printf("reported: %s %li %i %i\n", fn, ip, port, len);
+    if(parse_dcc_str(sss, &fn, &ip, &port, &len))
+        printf("reported: %s %li %i %i\n", fn, ip, port, len);
+    else puts("failed");
 
-    parse_dcc_str(nwspc, &fn, &ip, &port, &len);
-    printf("reported: %s %li %i %i\n", fn, ip, port, len);
+    /*
+     * parse_dcc_str(nwspc, &fn, &ip, &port, &len);
+     * printf("reported: %s %li %i %i\n", fn, ip, port, len);
+    */
 }
 
 
 int main(){
-    dctest();
-    exit(0);
+	/*dctest();*/
+	/*exit(0);*/
     struct irc_conn* ic = irc_connect("irc.irchighway.net", "ebooks");
     char* ln = NULL;
     size_t sz = 0;
