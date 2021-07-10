@@ -423,17 +423,6 @@ void await_irc(struct irc_conn* ic){
     pthread_join(ic->read_th, NULL);
 }
 
-/*
- * now i just need to figure out dcc, update msg handler to always accept DCC
- * dcc request comes in, interpret IP directly as unsigned long and port as unsigned short
- *
- * this should be done async, use spooler and have a function called dcc_recv
- * that creates a socket and recvs a file given the DCC string
- * 
- * exec_routine(_, dcc_recv, arg->msg) will be called from handler each time
- * strstr(dcc)
-*/
-
 _Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
     char* cursor = strrchr(msg, ' '), * st_cursor;
 
