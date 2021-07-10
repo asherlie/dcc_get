@@ -434,16 +434,76 @@ void await_irc(struct irc_conn* ic){
  * strstr(dcc)
 */
 
+_Bool parse_dcc_str(char* msg, char** fn, char** ip, char** port, char** len){
+    char* cursor = strrchr(msg, ' '), * st_cursor;
+
+    if(!cursor)return 0;
+
+    for(char* i = cursor; *i; ++i){
+        if(!isdigit(*i)){
+            *i = 0;
+            break;
+        }
+    }
+
+    *cursor = 0;
+    *len = cursor+1;
+
+
+    cursor = strrchr(msg, ' ');
+
+    if(!cursor)return 0;
+
+    *port = cursor+1;
+    /**len = cursor+1;*/
+
+    *cursor = 0;
+
+    cursor = strrchr(msg, ' ');
+
+    if(!cursor)return 0;
+
+    *ip = cursor+1;
+    /**port = cursor-1;*/
+
+    *cursor = 0;
+    /**ip = cursor-1;*/
+
+    st_cursor = strstr(msg, ":DCC SEND");
+
+    if(!st_cursor)return 0;
+
+    st_cursor += 10;
+
+    *fn = st_cursor;
+
+    #if !1
+                                                                                                          |
+    ":ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";
+    #endif
+
+    return 1;
+}
+
 void dctest(){
-/*
- * ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND "Albert Camus - Exile and the Kingdom (retail) (mobi).mobi" 3114053547 34035 20280"
- * 
- * ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4611 13093"
-*/
+    char wspc[] = ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";
+    /*char wspc[] = ":Horla!Horla@ihw-lof.1ub.156.185.IP PRIVMSG MALLOC :DCC SEND \"Albert Camus - Exile and the Kingdom (retail) (mobi).mobi\" 3114053547 34035 20280";*/
+
+    /*char nwspc[] = "DCC SEND txt.zip 2907702291\4611\13093";*/
+    char nwspc[] = ":Search!Search@ihw-vu07ko.dyn.suddenlink.net PRIVMSG MALLOC :DCC SEND SearchBot_results_for__kafka.txt.zip 2907702291 4611 13093";
+
+    char* fn, * ip, * port, * len;
+    parse_dcc_str(wspc, &fn, &ip, &port, &len);
+    printf("reported: %s %s %s %s\n", fn, ip, port, len);
+
+    parse_dcc_str(nwspc, &fn, &ip, &port, &len);
+    printf("reported: %s %s %s %s\n", fn, ip, port, len);
 }
 
 
 int main(){
+    dctest();
+    exit(0);
     struct irc_conn* ic = irc_connect("irc.irchighway.net", "ebooks");
     char* ln = NULL;
     size_t sz = 0;
