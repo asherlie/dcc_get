@@ -259,7 +259,8 @@ void handle_dcc(char* msg, struct irc_conn* ic){
 
         tmp = read(sock, buf+b_read, fsz);
         b_read += tmp;
-        printf("read %i/%i bytes\n", b_read, fsz);
+        printf("\rread %i/%i bytes", b_read, fsz);
+        fflush(stdout);
 
         /*if(b_read == fsz)break;*/
         /* TODO: ??? */
@@ -275,6 +276,7 @@ void handle_dcc(char* msg, struct irc_conn* ic){
          * }
         */
     }
+    /*puts("");*/
 
     if(*fn == '"'){
         char* l_quote;
