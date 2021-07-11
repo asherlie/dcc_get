@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -60,10 +62,32 @@ char* pop_s_term_l(struct s_term_l* stl){
     return ret;
 }
 
-float st_confidence(struct s_term_l* stl, char* result){
-    char* cursor = result;
+/*
+ * compare each word in our term to the target as a whole
+ * sum the matches
+ * return sum
+*/
+/*write a test*/
+/* must be called with lock acquired */
+float st_confidence(struct s_term* st, char* target){
+    char* term = st->term;
+    char* cursor = term, * prev = term;
+    int n_found = 0, n_subterms = 1;
+    while((cursor = strchr(cursor, ' '))){
+        ++n_subterms;
+        *cursor = 0;
+        if(strcasestr(target, prev))++n_found;
+        *cursor = ' ';
+        ++cursor;
+        prev = cursor;
+        /*if(deleter = strchr(cursor+1))*/
+    }
+    n_found += (_Bool)strcasestr(target, prev);
 
-    return 0.0;
+    printf("%i %i\n", n_found, n_subterms);
+    printf("target %s with confidence %f\n", target, (float)n_found/(float)n_subterms);
+
+    return (float)n_found/(float)n_subterms;
 }
 
 struct irc_conn{
@@ -254,6 +278,56 @@ _Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* por
     return 1;
 }
 
+char* find_file_str(struct s_term_l* stl, FILE* option_lst){
+    char* ln = NULL;
+    size_t sz = 0;
+    int len;
+
+    float max_conf = 0, tmp;
+    char* best_match = NULL;
+
+    /* we must acquire lock before selecting a file */
+    pthread_mutex_lock(&stl->s_term_lck);
+    while((len = getline(&ln, &sz, option_lst)) != EOF){
+        #if !1
+        st_confidence is a float - matches/total_subterms - 1 is absolute best
+        if 1, we can short circuit!
+        hmm this code is weird... we need to be finding confidence for each ln
+        BUT check each line against every term in the stl
+        need another nested loop!
+        nvm swap these loops, this should be outer bc we are selecting the proper ln
+        need to see which line works best with a given 
+
+            wtf... scrap it all hmm
+            given a list of terms and a list of files
+            need to find the one file that a term matches the best
+    
+            go thru all terms, each time there is a hit of a subterm, add up that term candidate
+            whichever term has a bigger score 
+            idk man
+
+            once we select one, keep track of it in the corresponding s_term
+            and mark that s_term as awaiting_file
+
+            when a non-zip file comes in with the identical filename, we can perform an action with it
+            such as emailing perhaps
+            #endif
+
+        for(struct s_term* st = stl->first; st; st = st->next){
+            if((tmp = st_confidence(st, ln)) > max_conf){
+                max_conf = tmp;
+                if(best_match)free(best_match);
+                else free(ln);
+                best_match = ln;
+            }
+        }
+        ln = NULL;
+    }
+    pthread_mutex_unlock(&stl->s_term_lck);
+
+    return best_match;
+}
+
 /* s_term and recipient can be coupled together on insertion */
 void file_dl_handler(struct s_term_l* stl, char* fn){
     char* ext = strrchr(fn, '.');
@@ -269,22 +343,8 @@ void file_dl_handler(struct s_term_l* stl, char* fn){
         printf("run cmd: %s\n", rawfn);
 
         FILE* fp = fopen(rawfn, "w");
-        char* ln = NULL;
-        size_t sz = 0;
-        int len;
 
-        float max_conf = 0, tmp;
-        char* best_match = NULL;
-
-        while((len = getline(&ln, &sz, fp))){
-            if((tmp = st_confidence(stl, ln)) > max_conf){
-                max_conf = tmp;
-                if(best_match)free(best_match);
-                best_match = ln;
-            }
-            else free(ln);
-            ln = NULL;
-        }
+        find_file_str(stl, fp);
     }
 }
 
@@ -579,6 +639,15 @@ void dctest(){
     */
 }
 
+void test_find_file_str(char* s_term, char* fn){
+    FILE* fp = fopen(fn, "r");
+    struct s_term_l* stl = init_s_term_l();
+    insert_s_term_l(stl, strdup(s_term));
+
+    printf("ret: %s\n", find_file_str(stl, fp));
+
+    fclose(fp);
+}
 
 #if !1
 search term must be recorded in order to search through them
@@ -598,7 +667,10 @@ once all match use that
 otherwise use most matched
 #endif
 
-int main(){
+int main(int a, char** b){
+    (void)a;
+    test_find_file_str(b[1], b[2]);
+    exit(0);
 	/*dctest();*/
 	/*exit(0);*/
     struct irc_conn* ic = irc_connect("irc.irchighway.net", "ebooks");
