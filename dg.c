@@ -84,8 +84,10 @@ float st_confidence(struct s_term* st, char* target){
     }
     n_found += (_Bool)strcasestr(target, prev);
 
-    printf("%i %i\n", n_found, n_subterms);
-    printf("target %s with confidence %f\n", target, (float)n_found/(float)n_subterms);
+     /*
+      * printf("%i %i\n", n_found, n_subterms);
+      * printf("target %s with confidence %f\n", target, (float)n_found/(float)n_subterms);
+     */
 
     return (float)n_found/(float)n_subterms;
 }
@@ -125,7 +127,7 @@ _Bool establish_connection(struct irc_conn* ic, char* host_name, char* join_str)
     ic->on_server = ic->nick_set = 0;
     ic->join_str = strdup(join_str);
 
-    init_s_term_l(ic->stl);
+    ic->stl = init_s_term_l();
 
     pthread_mutex_init(&ic->nick_set_lck, NULL);
     pthread_mutex_init(&ic->send_lck, NULL);
@@ -289,6 +291,7 @@ char* find_file_str(struct s_term_l* stl, FILE* option_lst){
     /* we must acquire lock before selecting a file */
     pthread_mutex_lock(&stl->s_term_lck);
     while((len = getline(&ln, &sz, option_lst)) != EOF){
+        if(*ln != '!')continue;
         #if !1
         st_confidence is a float - matches/total_subterms - 1 is absolute best
         if 1, we can short circuit!
@@ -317,11 +320,13 @@ char* find_file_str(struct s_term_l* stl, FILE* option_lst){
             if((tmp = st_confidence(st, ln)) > max_conf){
                 max_conf = tmp;
                 if(best_match)free(best_match);
-                else free(ln);
                 best_match = ln;
+
+                if(max_conf == 1.0)break;
             }
+            /*else free(ln);*/
         }
-        ln = NULL;
+        if(best_match == ln)ln = NULL;
     }
     pthread_mutex_unlock(&stl->s_term_lck);
 
@@ -329,22 +334,42 @@ char* find_file_str(struct s_term_l* stl, FILE* option_lst){
 }
 
 /* s_term and recipient can be coupled together on insertion */
-void file_dl_handler(struct s_term_l* stl, char* fn){
+/*void file_dl_handler(struct s_term_l* stl, char* fn){*/
+void file_dl_handler(struct irc_conn* ic, char* fn){
     char* ext = strrchr(fn, '.');
+    struct s_term_l* stl = ic->stl;
 
     if(!ext)return;
 
     if(!strcmp(ext+1, "zip")){
-        char buf[100] = {0}, rawfn[50] = {0};
+        char buf[500] = {0}, rawfn[200] = {0}, * find_fs;
         *ext = 0;
-        sprintf(rawfn, "\".%s.raw\"", fn);
-        sprintf(buf, "unzip -p %s > %s", fn, rawfn);
+        /*sprintf(rawfn, "\".%s.raw\"", fn);*/
+        sprintf(rawfn, ".%s.raw", fn);
+        *ext = '.';
+        sprintf(buf, "/usr/bin/unzip -p %s > %s", fn, rawfn);
         system(buf);
-        printf("run cmd: %s\n", rawfn);
+        /*printf("rawfn: %s\n", rawfn);*/
+        /*printf("run cmd: |%s|\n", buf);*/
+        /*usleep(400000);*/
 
-        FILE* fp = fopen(rawfn, "w");
+        FILE* fp = fopen(rawfn, "r");
+        
+        /*while(!(fp = fopen(rawfn, "w")))usleep(1000);*/
 
-        find_file_str(stl, fp);
+        find_fs = find_file_str(stl, fp);
+        if(find_fs){
+            char fdl_cmd[1000] = {0};
+            sprintf(fdl_cmd, "PRIVMSG #ebooks :%s\n", find_fs);
+
+            printf("%sREQUESTING FILE: \"%s\"%s\n", ANSI_RED, find_fs, ANSI_RESET);
+            fflush(stdout);
+            /*printf("sending cmd: %s\n", fdl_cmd);*/
+            send_irc(ic, fdl_cmd);
+        }
+        /*printf("using search term: %s\n", find_file_str(stl, fp));*/
+
+        fclose(fp);
     }
 }
 
@@ -431,14 +456,19 @@ void handle_dcc(char* msg, struct irc_conn* ic){
         }
     }
 
+    for(char* i = fn; *i; ++i){
+        if(*i == ' ')*i = '_';
+    }
+
     FILE* fp = fopen(fn, "w");
     puts("writing to file");
     fwrite(buf, 1, fsz, fp);
     free(buf);
+    fflush(fp);
     fclose(fp);
     printf("wrote %i bytes to %s\n", fsz, fn);
 
-    file_dl_handler(ic->stl, fn);
+    file_dl_handler(ic, fn);
 
     /*
      * for(int i = 0; i < fsz; ++i){
@@ -668,9 +698,14 @@ otherwise use most matched
 #endif
 
 int main(int a, char** b){
+    /*exit(0);*/
     (void)a;
-    test_find_file_str(b[1], b[2]);
-    exit(0);
+    (void)b;
+    /*
+     * (void)a;
+     * test_find_file_str(b[1], b[2]);
+     * exit(0);
+    */
 	/*dctest();*/
 	/*exit(0);*/
     struct irc_conn* ic = irc_connect("irc.irchighway.net", "ebooks");
@@ -682,6 +717,7 @@ int main(int a, char** b){
             char buf[200] = {0};
             sprintf(buf, "PRIVMSG #ebooks :@search %s", ln+1);
             send_irc(ic, buf);
+            /*puts("sent term");*/
             insert_s_term_l(ic->stl, ln+1);
         }
         else send_irc(ic, ln);
