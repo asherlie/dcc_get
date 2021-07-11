@@ -60,16 +60,21 @@ char* pop_s_term_l(struct s_term_l* stl){
     return ret;
 }
 
+float st_confidence(struct s_term_l* stl, char* result){
+    char* cursor = result;
+
+    return 0.0;
+}
+
 struct irc_conn{
     struct spool_t msg_handlers;
 
     /*pthread_cond_t first_msg_recvd;*/
-    pthread_mutex_t nick_set_lck, send_lck, s_term_lck;
+    pthread_mutex_t nick_set_lck, send_lck;
 
     pthread_t read_th;
 
-    char** search_terms;
-    int n_terms, s_term_cap;
+    struct s_term_l* stl;
 
     char* join_str;
     _Atomic _Bool nick_set, on_server;
@@ -95,6 +100,8 @@ _Bool establish_connection(struct irc_conn* ic, char* host_name, char* join_str)
     /*ic->active = 1;*/
     ic->on_server = ic->nick_set = 0;
     ic->join_str = strdup(join_str);
+
+    init_s_term_l(ic->stl);
 
     pthread_mutex_init(&ic->nick_set_lck, NULL);
     pthread_mutex_init(&ic->send_lck, NULL);
@@ -247,6 +254,40 @@ _Bool parse_dcc_str(char* msg, char** fn, unsigned long* ip, unsigned short* por
     return 1;
 }
 
+/* s_term and recipient can be coupled together on insertion */
+void file_dl_handler(struct s_term_l* stl, char* fn){
+    char* ext = strrchr(fn, '.');
+
+    if(!ext)return;
+
+    if(!strcmp(ext+1, "zip")){
+        char buf[100] = {0}, rawfn[50] = {0};
+        *ext = 0;
+        sprintf(rawfn, "\".%s.raw\"", fn);
+        sprintf(buf, "unzip -p %s > %s", fn, rawfn);
+        system(buf);
+        printf("run cmd: %s\n", rawfn);
+
+        FILE* fp = fopen(rawfn, "w");
+        char* ln = NULL;
+        size_t sz = 0;
+        int len;
+
+        float max_conf = 0, tmp;
+        char* best_match = NULL;
+
+        while((len = getline(&ln, &sz, fp))){
+            if((tmp = st_confidence(stl, ln)) > max_conf){
+                max_conf = tmp;
+                if(best_match)free(best_match);
+                best_match = ln;
+            }
+            else free(ln);
+            ln = NULL;
+        }
+    }
+}
+
 void handle_dcc(char* msg, struct irc_conn* ic){
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     int fsz;
@@ -336,6 +377,8 @@ void handle_dcc(char* msg, struct irc_conn* ic){
     free(buf);
     fclose(fp);
     printf("wrote %i bytes to %s\n", fsz, fn);
+
+    file_dl_handler(ic->stl, fn);
 
     /*
      * for(int i = 0; i < fsz; ++i){
@@ -567,6 +610,7 @@ int main(){
             char buf[200] = {0};
             sprintf(buf, "PRIVMSG #ebooks :@search %s", ln+1);
             send_irc(ic, buf);
+            insert_s_term_l(ic->stl, ln+1);
         }
         else send_irc(ic, ln);
     }
