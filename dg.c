@@ -20,13 +20,56 @@
 #define ANSI_CYAN    "\x1b[36m"
 #define ANSI_RESET   "\x1b[0m"
 
+struct s_term{
+    char* term;
+    struct s_term* next;
+};
+
+struct s_term_l{
+    struct s_term* first, * last;
+    pthread_mutex_t s_term_lck;
+};
+
+struct s_term_l* init_s_term_l(){
+    struct s_term_l* stl = malloc(sizeof(struct s_term_l));
+    stl->first = stl->last = NULL;
+    pthread_mutex_init(&stl->s_term_lck, NULL);
+
+    return stl;
+}
+
+void insert_s_term_l(struct s_term_l* stl, char* term){
+    pthread_mutex_lock(&stl->s_term_lck);
+    if(!stl->last){
+        stl->first = stl->last = malloc(sizeof(struct s_term));
+        stl->first->next = NULL;
+        stl->first->term = term;
+    }
+    pthread_mutex_unlock(&stl->s_term_lck);
+}
+
+char* pop_s_term_l(struct s_term_l* stl){
+    char* ret = NULL;
+    pthread_mutex_lock(&stl->s_term_lck);
+    if(stl->first){
+        ret = stl->first->term;
+        stl->first = stl->first->next;
+    }
+    pthread_mutex_unlock(&stl->s_term_lck);
+
+    return ret;
+}
+
 struct irc_conn{
     struct spool_t msg_handlers;
 
     /*pthread_cond_t first_msg_recvd;*/
-    pthread_mutex_t nick_set_lck, send_lck;
+    pthread_mutex_t nick_set_lck, send_lck, s_term_lck;
 
     pthread_t read_th;
+
+    char** search_terms;
+    int n_terms, s_term_cap;
 
     char* join_str;
     _Atomic _Bool nick_set, on_server;
@@ -493,6 +536,24 @@ void dctest(){
     */
 }
 
+
+#if !1
+search term must be recorded in order to search through them
+immediately after a download of a zip file, we call a file_dl_handler()
+which handles diff file types
+for ".zip", look in struct for a matching term
+
+maybe keep track of port, ip, sterm, 
+
+need to link .search command with dcc download
+
+we can just store the entire search term
+then when we get a dcc file, is downloaded, we go through each line
+and if any of th eelements of the search term separated by ' ' match a line
+keep track of it, line_no, num_matches
+once all match use that
+otherwise use most matched
+#endif
 
 int main(){
 	/*dctest();*/
